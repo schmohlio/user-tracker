@@ -1,0 +1,57 @@
+apply plugin: 'java'
+apply plugin: 'com.google.protobuf'
+apply plugin: 'idea'
+apply plugin: 'application'
+
+
+buildscript {
+  repositories {
+    mavenCentral()
+  }
+  dependencies {
+    classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.0'
+  }
+}
+
+protobuf {
+  protoc {
+    artifact = "com.google.protobuf:protoc:3.0.2"
+  }
+  plugins {
+    grpc {
+      artifact = 'io.grpc:protoc-gen-grpc-java:1.0.3'
+    }
+  }
+  generateProtoTasks {
+    all()*.plugins {
+      grpc {}
+    }
+  }
+}
+
+clean {
+  delete protobuf.generatedFilesBaseDir
+}
+
+idea {
+    module {
+    	sourceDirs += file("${projectDir}/build/generated/source/proto/main/java");
+    	sourceDirs += file("${projectDir}/build/generated/source/proto/main/grpc");
+    }
+}
+
+repositories {
+    jcenter()
+}
+
+dependencies {
+    compile 'com.google.guava:guava:20.0'
+    compile 'io.grpc:grpc-netty:1.0.3'
+    compile 'io.grpc:grpc-protobuf:1.0.3'
+    compile 'io.grpc:grpc-stub:1.0.3'
+    compile 'org.mongodb:mongodb-driver-async:3.2.2'
+
+    testCompile 'junit:junit:4.12'
+}
+
+mainClassName = 'io.schmohl.usertracker.Simulation'

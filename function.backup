@@ -1,0 +1,64 @@
+
+  // do atomic `findAndModify` on the user's location.
+    // because this application runs in a replica set, we need to consider concurrency.
+    // instead of Optimistic Concurrency Control, we can use the `$max` update operator to only update the
+    // document atomically if the request checkin_time is after the currently stored checkin time.
+    public CompletableFuture<CheckinResp> addUserLoc(UserLocation r) {
+        final CompletableFuture<CheckinResp> promise = new CompletableFuture<>();
+
+        // trick to doing this is insert on UniqueIndex, which is effectively an insert "ignore" with version 1.
+        // next, we findAndModify with no upsert, and a query param that finds user id and checkin_ts < request checkin_ts.
+
+        // firstly, we create a record for that user if it does not exist with VERSION 1.
+        // if it exists, we ignore the version update.
+        // return back the document after it is modified so we can see the real VERSION.
+        userLocations.findOneAndUpdate(
+                eq("_id", r.getUserId()),
+                new BsonDocument("$max", new BsonDocument("version", new BsonInt64(1))),
+                new FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER),
+                (result, t) -> {
+                    if (result == null) {
+                        promise.completeExceptionally(t);
+                        return;
+                    }
+
+                    // if there is already a newer checkin, ignore this request.
+                    if (result.containsKey("checkin_ts") &&
+                            result.getLong("checkin_ts") >= r.getCheckinTs().getSeconds()) {
+                        promise.complete(CheckinResp.newBuilder().setUpdated(false).build());
+                        return;
+                    }
+
+                    // next, update the venue e
+
+                }
+        );
+        long newCheckinTs = r.getCheckinTs().getSeconds();
+
+        // query by just user id (no need to check version here for OCC
+        Bson query = eq("_id", r.getUserId());
+
+        // update only if the checkin time is after whats currently recorded.
+        BsonDocument update = new BsonDocument("checkin_ts", new BsonInt64(newCheckinTs));
+        Bson updateWithPredicate = new BsonDocument("$max", update);
+
+        // create a document if the query misses.
+        // also return the original document so that we can see if it was updated.
+        FindOneAndUpdateOptions opts = new FindOneAndUpdateOptions()
+                .upsert(true)
+                .returnDocument(ReturnDocument.BEFORE);
+
+        userLocations.findOneAndUpdate(query, updateWithPredicate, opts, (result, t) -> {
+            if (result == null) {
+                promise.completeExceptionally(t);
+                return;
+            }
+
+            promise.complete(CheckinResp.newBuilder()
+                    .setUpdated(result.getLong("checkin_ts") == newCheckinTs)
+                    .build()
+            );
+        });
+
+        return promise;
+    }

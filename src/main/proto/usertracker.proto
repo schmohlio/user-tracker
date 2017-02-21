@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+option java_multiple_files = true;
+option java_package = "io.schmohl.usertracker";
+option java_outer_classname = "UserTrackerProto";
+option objc_class_prefix = "SB";
+
+package usertracker;
+
+service UserTracker {
+    // track new user checkin.
+    rpc CheckIn(UserLocation) returns (CheckinResp);
+
+    // successful RPC call trimmediately writes checkin to durable message bus instead of DB.
+    // A background worker on Server will write to DB to have eventually consistent result.
+    // An HA message bus will help us with availability and throttling during load spikes.
+    rpc CheckInAsync(UserLocation) returns (google.protobuf.Empty);
+
+    // retrieve user's current location.
+    rpc FindUser(FindUserReq) returns (FindUserResp);
+
+    // retrieve all users at a venue.
+    rpc FindVenueUsers(FindVenueUsersReq) returns (stream UserLocation);
+}
+
+message UserLocation {
+    google.protobuf.Timestamp checkin_ts = 1;
+    string user_id = 2;
+    string venue_id = 3;
+}
+
+message CheckinResp {
+    bool updated = 1; // tells us if there was already a newer record in DB.
+}
+
+message FindUserReq {
+    string user_id = 1;
+    google.protobuf.Timestamp ts = 2;
+}
+
+message FindUserResp {
+    bool exists = 1;
+    UserLocation loc = 2;
+}
+
+message FindVenueUsersReq {
+    string venue_id = 1;
+    google.protobuf.Timestamp ts = 2;
+    int32 limit = 3; // number of records, sorted by most recent timestamp.
+}
