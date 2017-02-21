@@ -7,15 +7,21 @@ import io.grpc.stub.StreamObserver;
 import org.bson.*;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Semaphore;
 
 public class UserTrackerImpl extends UserTrackerGrpc.UserTrackerImplBase {
 
     private final Controller controller;
 
+    // control concurrency of async operations.
+    private static final int MAX_AVAILABLE = 100;
+    private final static Semaphore available = new Semaphore(MAX_AVAILABLE, true);
+
     public UserTrackerImpl(Controller c) { controller = c; }
 
     @Override
     public void checkIn(UserLocation loc, StreamObserver<CheckinResp> streamObserver) {
+        acquire();
         handleOne(controller.addUserLoc(loc), streamObserver);
     }
 
@@ -26,6 +32,7 @@ public class UserTrackerImpl extends UserTrackerGrpc.UserTrackerImplBase {
 
     @Override
     public void findUser(FindUserReq userRequest, StreamObserver<FindUserResp> streamObserver) {
+        acquire();
         handleOne(controller.findUser(userRequest), streamObserver);
     }
 
@@ -37,13 +44,19 @@ public class UserTrackerImpl extends UserTrackerGrpc.UserTrackerImplBase {
                 streamObserver.onNext(resp);
 
             streamObserver.onCompleted();
+            available.release();
         });
 
+    }
+
+    private void acquire() {
+        try{ available.acquire(); } catch (InterruptedException e) {}
     }
 
     @Override
     public void findVenueUsers(FindVenueUsersReq venueUsersReq, StreamObserver<UserLocation> streamObserver) {
 
+        acquire();
         controller.findUsersAtVenue(venueUsersReq).subscribe(new Observer<Document>() {
 
             private long batchSize = 20; // how much should we buffer in memory on application server?
@@ -75,6 +88,7 @@ public class UserTrackerImpl extends UserTrackerGrpc.UserTrackerImplBase {
             @Override
             public void onComplete() {
                 streamObserver.onCompleted();
+                available.release();
             }
         });
     }
